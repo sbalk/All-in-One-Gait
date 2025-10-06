@@ -8,70 +8,61 @@ from segment import *
 from recognise import *
 
 def main():
+    """
+    Main function to process gallery and probe videos.
+    Automatically detects all probe videos in the input directory.
+    """
     output_dir = "./demo/output/OutputVideos/"
     os.makedirs(output_dir, exist_ok=True)
     current_time = time.localtime()
     timestamp = time.strftime("%Y_%m_%d_%H_%M_%S", current_time)
     video_save_folder = osp.join(output_dir, timestamp)
-    
+
     save_root = './demo/output/'
-    gallery_video_path = "./demo/output/InputVideos/gallery.mp4"
-    probe1_video_path  = "./demo/output/InputVideos/probe1.mp4"
-    probe2_video_path  = "./demo/output/InputVideos/probe2.mp4"
-    probe3_video_path  = "./demo/output/InputVideos/probe3.mp4"
-    probe4_video_path  = "./demo/output/InputVideos/probe4.mp4"
+    input_dir = "./demo/output/InputVideos/"
+    gallery_video_path = osp.join(input_dir, "gallery.mp4")
 
-    # tracking
+    # Auto-detect probe videos
+    import glob
+    probe_video_paths = sorted(glob.glob(osp.join(input_dir, "probe*.mp4")))
+
+    if not probe_video_paths:
+        print("No probe videos found in", input_dir)
+        return
+
+    print(f"Found {len(probe_video_paths)} probe video(s): {[osp.basename(p) for p in probe_video_paths]}")
+
+    # Tracking
     gallery_track_result = track(gallery_video_path, video_save_folder)
-    probe1_track_result  = track(probe1_video_path, video_save_folder)
-    probe2_track_result  = track(probe2_video_path, video_save_folder)
-    probe3_track_result  = track(probe3_video_path, video_save_folder)
-    probe4_track_result  = track(probe4_video_path, video_save_folder)
+    probe_track_results = [track(path, video_save_folder) for path in probe_video_paths]
 
-    gallery_video_name = gallery_video_path.split("/")[-1]
-    gallery_video_name = save_root+'/GaitSilhouette/'+gallery_video_name.split(".")[0]
-    probe1_video_name  = probe1_video_path.split("/")[-1]
-    probe1_video_name  = save_root+'/GaitSilhouette/'+probe1_video_name.split(".")[0]
-    probe2_video_name  = probe2_video_path.split("/")[-1]
-    probe2_video_name  = save_root+'/GaitSilhouette/'+probe2_video_name.split(".")[0]
-    probe3_video_name  = probe3_video_path.split("/")[-1]
-    probe3_video_name  = save_root+'/GaitSilhouette/'+probe3_video_name.split(".")[0]
-    probe4_video_name  = probe4_video_path.split("/")[-1]
-    probe4_video_name  = save_root+'/GaitSilhouette/'+probe4_video_name.split(".")[0]
-    exist = os.path.exists(gallery_video_name) and os.path.exists(probe1_video_name) \
-            and os.path.exists(probe2_video_name) and os.path.exists(probe3_video_name) \
-            and os.path.exists(probe4_video_name)
+    # Check if silhouettes already exist
+    gallery_video_name = save_root + '/GaitSilhouette/' + gallery_video_path.split("/")[-1].split(".")[0]
+    probe_video_names = [save_root + '/GaitSilhouette/' + path.split("/")[-1].split(".")[0]
+                         for path in probe_video_paths]
+
+    exist = os.path.exists(gallery_video_name) and all(os.path.exists(name) for name in probe_video_names)
     print(exist)
+
+    # Segmentation
     if exist:
-        gallery_silhouette = getsil(gallery_video_path, save_root+'/GaitSilhouette/')
-        probe1_silhouette  = getsil(probe1_video_path , save_root+'/GaitSilhouette/')
-        probe2_silhouette  = getsil(probe2_video_path , save_root+'/GaitSilhouette/')
-        probe3_silhouette  = getsil(probe3_video_path , save_root+'/GaitSilhouette/')
-        probe4_silhouette  = getsil(probe4_video_path , save_root+'/GaitSilhouette/')
+        gallery_silhouette = getsil(gallery_video_path, save_root + '/GaitSilhouette/')
+        probe_silhouettes = [getsil(path, save_root + '/GaitSilhouette/') for path in probe_video_paths]
     else:
-        gallery_silhouette = seg(gallery_video_path, gallery_track_result, save_root+'/GaitSilhouette/')
-        probe1_silhouette  = seg(probe1_video_path , probe1_track_result , save_root+'/GaitSilhouette/')
-        probe2_silhouette  = seg(probe2_video_path , probe2_track_result , save_root+'/GaitSilhouette/')
-        probe3_silhouette  = seg(probe3_video_path , probe3_track_result , save_root+'/GaitSilhouette/')
-        probe4_silhouette  = seg(probe4_video_path , probe4_track_result , save_root+'/GaitSilhouette/')
+        gallery_silhouette = seg(gallery_video_path, gallery_track_result, save_root + '/GaitSilhouette/')
+        probe_silhouettes = [seg(path, track_result, save_root + '/GaitSilhouette/')
+                            for path, track_result in zip(probe_video_paths, probe_track_results)]
 
-    # recognise
-    gallery_feat = extract_sil(gallery_silhouette, save_root+'/GaitFeatures/')
-    probe1_feat  = extract_sil(probe1_silhouette , save_root+'/GaitFeatures/')
-    probe2_feat  = extract_sil(probe2_silhouette , save_root+'/GaitFeatures/')
-    probe3_feat  = extract_sil(probe3_silhouette , save_root+'/GaitFeatures/')
-    probe4_feat  = extract_sil(probe4_silhouette , save_root+'/GaitFeatures/')
+    # Recognition - extract features
+    gallery_feat = extract_sil(gallery_silhouette, save_root + '/GaitFeatures/')
+    probe_feats = [extract_sil(silhouette, save_root + '/GaitFeatures/') for silhouette in probe_silhouettes]
 
-    gallery_probe1_result = compare(probe1_feat, gallery_feat)
-    gallery_probe2_result = compare(probe2_feat, gallery_feat)
-    gallery_probe3_result = compare(probe3_feat, gallery_feat)
-    gallery_probe4_result = compare(probe4_feat, gallery_feat)
+    # Compare probes with gallery
+    probe_results = [compare(feat, gallery_feat) for feat in probe_feats]
 
-    # write the result back to the video
-    writeresult(gallery_probe1_result, probe1_video_path, video_save_folder)
-    writeresult(gallery_probe2_result, probe2_video_path, video_save_folder)
-    writeresult(gallery_probe3_result, probe3_video_path, video_save_folder)
-    writeresult(gallery_probe4_result, probe4_video_path, video_save_folder)
+    # Write results back to videos
+    for result, path in zip(probe_results, probe_video_paths):
+        writeresult(result, path, video_save_folder)
 
 
 if __name__ == "__main__":
